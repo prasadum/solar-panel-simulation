@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>3 Panel Solar Simulation — Adjusted Sun Trajectory</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; background: linear-gradient(#cce6ff, #eef); color: #222; }
+  h1 { text-align:center; color:#004080; font-size:24px; }
+  svg { border:2px solid #004080; border-radius:8px; width:1000px; height:500px; background: linear-gradient(to top,#87ceeb,#fff); display:block; margin-left:auto; margin-right:0; }
+  .panel rect { fill:#2b4a63; stroke:#04263a; stroke-width:3; }
+  label{display:block;margin:8px 0;font-weight:bold;font-size:16px;}
+  input,select{font-size:16px;padding:5px;margin-left:6px;}
+  #tiltValue{font-weight:bold;color:#cc0000;margin-left:8px;}
+  #meters div{font-size:16px;}
+  #controls { position:absolute; bottom:20px; left:20px; }
+</style>
+</head>
+<body>
+
+<h1>3 Panel Solar Simulation — Adjusted Sun Trajectory</h1>
+
+<div id="controls">
+<label>Connection:
+  <input type="radio" name="conn" value="series" checked>Series
+  <input type="radio" name="conn" value="parallel">Parallel
+</label>
+
+<label>Display:
+  <select id="displayMode">
+    <option value="isc">Isc</option>
+    <option value="voc">Voc</option>
+  </select>
+</label>
+
+<label>Time of Day: <span id="timeLabel">06:00</span>
+  <input type="range" id="timeRange" min="0" max="1000" value="500" style="width:400px;">
+</label>
+
+<label>Irradiance (W/m²):
+  <select id="intensitySelect">
+    <option value="250">250</option>
+    <option value="500">500</option>
+    <option value="750">750</option>
+    <option value="1000" selected>1000</option>
+  </select>
+</label>
+
+<label>Tilt (degrees):
+  <input type="range" id="tilt" min="0" max="90" value="0">
+  <span id="tiltValue">0°</span>
+</label>
+</div>
+
+<svg id="scene">
+  <g id="sunGroup">
+    <circle id="sunGlow" r="25" fill="#ffd166" opacity="0.3"/>
+    <circle id="sunCircle" r="12" fill="#ffd166" stroke="#fff3b0" stroke-width="2"/>
+  </g>
+
+  <g id="panels" transform="translate(250,400)">
+    <g class="panel" id="panel1"><rect x="0" y="-60" width="100" height="60" rx="6"/></g>
+    <g class="panel" id="panel2" transform="translate(150,0)"><rect x="0" y="-60" width="100" height="60" rx="6"/></g>
+    <g class="panel" id="panel3" transform="translate(300,0)"><rect x="0" y="-60" width="100" height="60" rx="6"/></g>
+  </g>
+</svg>
+
+<div id="meters" style="display:flex;gap:12px;margin-top:12px; position:absolute; right:20px; top:20px;">
+  <div style="flex:1;border:2px solid #004080;padding:8px;border-radius:6px;background:#fff">
+    <h3 style="color:#004080; font-size:16px; margin:0;">Current (A)</h3>
+    <div id="totalCurrent" style="margin-top:6px;font-family:monospace;font-size:16px">-</div>
+  </div>
+  <div style="flex:1;border:2px solid #004080;padding:8px;border-radius:6px;background:#fff">
+    <h3 style="color:#004080; font-size:16px; margin:0;">Voltage (V)</h3>
+    <div id="totalVoltage" style="margin-top:6px;font-family:monospace;font-size:16px">-</div>
+  </div>
+</div>
+
+<script>
+const el=id=>document.getElementById(id);
+const timeRange=el('timeRange'), intensitySelect=el('intensitySelect'), tiltControl=el('tilt');
+const displayMode=el('displayMode'), timeLabel=el('timeLabel'), tiltValue=el('tiltValue');
+const sunGroup=el('sunGroup'), p1=el('panel1'), p2=el('panel2'), p3=el('panel3');
+const totalCurrent=el('totalCurrent'), totalVoltage=el('totalVoltage');
+
+const panelSpacing=150, panelsBaseY=400, maxTime=1000;
+
+function deg2rad(d){return d*Math.PI/180;}
+function timeToClock(t){const h=Math.floor(6 + (t/maxTime)*12); const m=Math.round(((6 + (t/maxTime)*12)-h)*60); return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');}
+
+function updateVisuals(){
+  const t=Number(timeRange.value);
+  timeLabel.textContent = timeToClock(t);
+  const intensity = Number(intensitySelect.value)/1000;
+  const tiltDeg = Number(tiltControl.value), tiltRad=deg2rad(tiltDeg);
+  tiltValue.textContent = tiltDeg+'°';
+
+  const normT = t/maxTime;
+
+  // Shift sun trajectory left so noon aligns above center panel
+  const sx = 200 + normT*700; // shifted left 50px from previous
+  const sy = 400 - 200*Math.sin(Math.PI*normT);
+  sunGroup.setAttribute('transform', `translate(${sx},${sy})`);
+
+  // Corrected Isc calculation
+  const sunElevation = Math.PI/2 * Math.sin(Math.PI*normT);
+  const panelNormal = Math.PI/2 - tiltRad;
+  const incidenceAngle = Math.max(0, Math.abs(sunElevation - panelNormal));
+  const incidenceCos = Math.max(Math.cos(incidenceAngle),0);
+
+  const baseIsc=10, baseVoc=40;
+  const centerIsc = +(baseIsc * intensity * incidenceCos).toFixed(2);
+  const centerVoc = +(baseVoc * (0.95 + 0.05*incidenceCos)).toFixed(2);
+
+  const conn=document.querySelector('input[name="conn"]:checked').value;
+  const totalIsc = conn==='series'?centerIsc:centerIsc*3;
+  const totalVoc = conn==='series'?centerVoc*3:centerVoc;
+
+  totalCurrent.textContent = totalIsc.toFixed(2)+' A';
+  totalVoltage.textContent = totalVoc.toFixed(2)+' V';
+
+  [p1,p2,p3].forEach((pg,i)=>{
+    pg.setAttribute('transform',`translate(${i*panelSpacing},0) rotate(${-tiltDeg} 50 0)`);
+  });
+}
+
+[timeRange,intensitySelect,tiltControl,displayMode].forEach(e=>e.addEventListener('input',updateVisuals));
+document.querySelectorAll('input[name="conn"]').forEach(r=>r.addEventListener('change',updateVisuals));
+updateVisuals();
+</script>
+</body>
+</html>
